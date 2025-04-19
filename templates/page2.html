@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font-family: Helvetica, Arial, sans-serif; margin: 1in; }
+    h2 { margin-top: 0; text-align:center; }
+    table { width: 100%; border-collapse: collapse; margin-top:0.5in; }
+    th, td { border: 1px solid #333; padding: 6px 8px; text-align: left; }
+    .block { break-inside: avoid-page; page-break-inside: avoid; }
+  </style>
+</head>
+<body>
+  <div class="block">
+    <h2>{{ provider_name }}</h2>
+  </div>
+
+  <div class="block">
+    <table>
+      <tr><th>Credit Type</th><th>Credits</th></tr>
+      {% for row in credit_table %}
+      <tr><td>{{ row.type }}</td><td>{{ row.amount }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <div class="block" style="margin-top:0.75in;">
+    <h3>Authors</h3>
+    {{ authors_html | safe }}
+  </div>
+</body>
+</html> 

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Overlay Designer</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf_viewer.min.css" />
+<style>
+  body { font-family:sans-serif; margin:0; display:flex; height:100vh; }
+  #sidebar { width:250px; background:#f5f5f5; padding:1rem; box-shadow:2px 0 4px rgba(0,0,0,.1); }
+  #viewerWrap { flex:1; overflow:auto; position:relative; }
+  #pdfCanvas { display:block; margin:0 auto; }
+  .box { position:absolute; border:2px dashed #f00; padding:4px 8px; cursor:move; background:rgba(255,255,255,.5); }
+</style>
+</head>
+<body>
+<div style="background:#eee;padding:0.5rem;text-align:center;">
+  <a href="/ui/index.html">Builder</a> | <a href="/ui/designer.html">Overlay Designer</a>
+</div>
+<div id="sidebar">
+  <h3>Overlay Designer</h3>
+  <p>Course ID: <input id="courseId" value="SAMPLE-COURSE" style="width:100%" /></p>
+  <button id="loadBtn">Load PDF</button>
+  <button id="saveBtn">Save Overlay</button>
+  <hr>
+  <label style="font-size:smaller">Add field:
+    <select id="fieldSelect" style="width:100%; margin-top:0.3rem;">
+      <option value="">Choose metadata field…</option>
+      <option value="title">Title</option>
+      <option value="credit_type">Credit Type</option>
+      <option value="credits">Credits</option>
+      <option value="release_date">Release Date</option>
+      <option value="expiration_date">Expiration Date</option>
+      <option value="provider_name">Provider Name</option>
+      <option value="objectives">Objectives</option>
+      <option value="credit_table">Credit Table</option>
+      <option value="authors_html">Authors</option>
+      <option value="disclaimer_html">Disclaimer</option>
+    </select>
+  </label>
+  <label style="font-size:smaller;display:block;margin-top:.5rem;">Font size
+    <input type="number" id="fontSize" value="24" style="width:100%;" />
+  </label>
+  <button id="addBtn" style="margin-top:.5rem;">Add Field Box</button>
+  <p style="font-size:smaller">Drag the dashed boxes to desired positions.</p>
+</div>
+<div id="viewerWrap">
+  <canvas id="pdfCanvas"></canvas>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+const pdfjsLib = window['pdfjs-dist/build/pdf'];
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const canvas = document.getElementById('pdfCanvas');
+const ctx = canvas.getContext('2d');
+let pdfScale = 1;
+
+// ---------- draggable boxes ----------
+let activeBox = null, offsetX=0, offsetY=0;
+function mouseMove(e){ if(!activeBox) return; activeBox.style.left=(e.pageX-offsetX)+'px'; activeBox.style.top=(e.pageY-offsetY)+'px'; }
+function mouseUp(){ activeBox=null; document.removeEventListener('mousemove',mouseMove); document.removeEventListener('mouseup',mouseUp); }
+function mouseDown(e){ activeBox=e.target; const rect=activeBox.getBoundingClientRect(); offsetX=e.clientX-rect.left; offsetY=e.clientY-rect.top; document.addEventListener('mousemove',mouseMove); document.addEventListener('mouseup',mouseUp); }
+function makeDraggable(el){ el.addEventListener('mousedown',mouseDown); }
+
+function createBox(field, left=30, top=30, font='Helvetica', size=24){
+  const div=document.createElement('div');
+  div.className='box';
+  div.textContent=`{{${field}}}`;
+  div.style.left=left+'px';
+  div.style.top=top+'px';
+  div.dataset.field=field;
+  div.dataset.font=font;
+  div.dataset.size=size;
+  makeDraggable(div);
+  document.getElementById('viewerWrap').appendChild(div);
+}
+
+async function loadPDF(){
+  // clear existing boxes
+  document.querySelectorAll('#viewerWrap .box').forEach(b=>b.remove());
+
+  const course = document.getElementById('courseId').value.trim();
+  const tryUrls = [
+    `/files/${course}/generated/cover.pdf`,
+    `/files/${course}/generated/cover_with_overlay.pdf`,
+    `/files/${course}/source/front_matter.pdf`
+  ];
+  let pdfBlob = null;
+  for (const url of tryUrls) {
+    const r = await fetch(url);
+    if (r.ok) { pdfBlob = await r.blob(); break; }
+  }
+  if(!pdfBlob){ alert('PDF not found. Build course or upload front_matter.pdf first.'); return; }
+  const pdf = await pdfjsLib.getDocument({data:await pdfBlob.arrayBuffer()}).promise;
+  const page = await pdf.getPage(1);
+  const viewport = page.getViewport({scale:1});
+  pdfScale = 600/viewport.width;
+  const vp = page.getViewport({scale:pdfScale});
+  canvas.width = vp.width; canvas.height = vp.height;
+  await page.render({canvasContext:ctx, viewport:vp}).promise;
+  // load overlay
+  const ovRes = await fetch(`/courses/${course}/overlay`);
+  const ov = await ovRes.json();
+  if(ov.fields && ov.fields.length){
+    ov.fields.forEach(f=>{
+      const left=f.x*pdfScale;
+      const top=(vp.height - f.y*pdfScale);
+      createBox(f.field,left,top,f.font||'Helvetica',f.size||24);
+    });
+  } else {
+    // default title box if no overlay yet
+    createBox('title');
+  }
+}
+
+document.getElementById('loadBtn').onclick = loadPDF;
+
+document.getElementById('saveBtn').onclick = async()=>{
+  const course = document.getElementById('courseId').value.trim();
+  const boxes=document.querySelectorAll('#viewerWrap .box');
+  const fields=[];
+  boxes.forEach(b=>{
+    const bx=parseFloat(b.style.left||'0');
+    const by=parseFloat(b.style.top||'0');
+    fields.push({
+      page:1,
+      x: bx/pdfScale,
+      y: (canvas.height - by)/pdfScale,
+      font: b.dataset.font||'Helvetica',
+      size: parseInt(b.dataset.size||'24'),
+      field: b.dataset.field
+    });
+  });
+  const payload={fields};
+  await fetch(`/courses/${course}/overlay`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  alert('Saved overlay!');
+};
+
+// add new field box
+document.getElementById('addBtn').onclick=()=>{
+  const field=document.getElementById('fieldSelect').value;
+  if(!field) return alert('Choose a field first');
+  const size=parseInt(document.getElementById('fontSize').value||'24');
+  createBox(field,30,30,'Helvetica',size);
+};
+</script>
+</body>
+</html> 

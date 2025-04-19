@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Course Front‑Matter Builder</title>
+  <!-- TinyMCE full-featured WYSIWYG -->
+  <script src="https://cdn.tiny.cloud/1/nasv2er153y720nlmf6lhcox0y9sm806j6qysrh85upe2hge/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 2rem; background:#f7f7f7; }
+    h1 { margin-top: 0; }
+    .card { background:#fff; border-radius:8px; padding:1.5rem 2rem; max-width:800px; margin:0 auto; box-shadow:0 2px 6px rgba(0,0,0,.08); }
+    label { font-weight:600; display:block; margin:.8rem 0 .3rem; }
+    input[type=text], input[type=number], input[type=date], textarea { width:100%; padding:.4rem .6rem; font-size:15px; border:1px solid #ccc; border-radius:4px; }
+    .hidden { display:none; }
+    .drop-zone { margin:.5rem 0 1.5rem; padding:1.5rem; border:2px dashed #999; text-align:center; color:#666; border-radius:6px; cursor:pointer; }
+    .drop-zone.drag { background:#eef; border-color:#66f; color:#33f; }
+    button { padding:.6rem 1rem; font-size:15px; border:none; border-radius:4px; background:#0066cc; color:#fff; cursor:pointer; }
+    button:disabled { background:#999; cursor:default; }
+    .flex { display:flex; gap:2rem; }
+  </style>
+</head>
+<body>
+  <div style="margin-bottom:1rem; text-align:center;">
+    <a href="/ui/index.html">Builder</a> | <a href="/ui/designer.html">Overlay Designer</a>
+  </div>
+  <div class="card">
+    <h1>Course Builder</h1>
+
+    <label>Course ID (folder name)
+      <input type="text" id="courseIdField" value="SAMPLE-COURSE" />
+    </label>
+
+    <h2 style="margin-top:1.2rem">Step 1 – Upload the author's Word file</h2>
+    <div id="docxZone" class="drop-zone">Drop <strong>.docx</strong> here or click to choose</div>
+    <input type="file" id="docxInput" accept=".docx" class="hidden" />
+
+    <h2 style="margin-top:1.2rem">Step 2 – Provide front‑matter pages</h2>
+
+    <div>
+      <strong>Select mode:</strong>
+      <label><input type="radio" name="mode" value="upload" checked> Upload PDF</label>
+      <label><input type="radio" name="mode" value="generate"> Create in browser</label>
+    </div>
+
+    <!-- Upload Panel -->
+    <div id="uploadPanel">
+      <div id="pdfZone" class="drop-zone">Drop <strong>front‑matter PDF</strong> here or click to choose</div>
+      <input type="file" id="pdfInput" accept="application/pdf" class="hidden">
+    </div>
+
+    <!-- Generate Panel -->
+    <div id="formPanel" class="hidden">
+      <label>Title
+        <input type="text" id="titleField" placeholder="Course title" />
+      </label>
+      <div class="flex">
+        <label style="flex:1">Credit Type
+          <input type="text" id="creditTypeField" placeholder="AMA" />
+        </label>
+        <label style="flex:1">Credits
+          <input type="number" id="creditsField" step="0.25" placeholder="2.5" />
+        </label>
+      </div>
+      <div class="flex">
+        <label style="flex:1">Release Date
+          <input type="date" id="releaseField">
+        </label>
+        <label style="flex:1">Expiration Date
+          <input type="date" id="expireField">
+        </label>
+      </div>
+      <label>Objectives (one per line)
+        <textarea id="objectivesField" rows="4" placeholder="Describe objective one\nDescribe objective two"></textarea>
+      </label>
+      <label>Provider Name
+        <input type="text" id="providerField" placeholder="Beacon Hill Financial Educators®" />
+      </label>
+      <label>Credit Table (one row per line, format: Type|Amount)
+        <textarea id="creditRowsField" rows="3" placeholder="AMA PRA|2.0\nCFP®|2.0"></textarea>
+      </label>
+      <label>Authors (rich text)
+        <textarea id="authorsEditor"></textarea>
+      </label>
+      <label>Disclaimer (rich text)
+        <!-- snippet selector -->
+        <select id="snippetSelect" style="margin-bottom:0.5rem;width:100%;">
+          <option value="">Insert saved snippet…</option>
+          <option value="<p><strong>Commercial Support:</strong> None.</p>">Commercial Support</option>
+          <option value="<p><em>Disclaimer: The views expressed …</em></p>">General Disclaimer</option>
+        </select>
+        <textarea id="disclaimerEditor"></textarea>
+      </label>
+    </div>
+
+    <div style="display:flex; gap:1rem; margin-top:1rem;">
+      <button id="saveBtn" disabled>Save Front‑Matter</button>
+      <button id="buildBtn">Build Course PDFs</button>
+    </div>
+    <div id="status" style="margin-top:1rem;color:#0066cc;"></div>
+    <div id="artifacts"></div>
+  </div>
+
+<script>
+const modeRadios = document.querySelectorAll('[name="mode"]');
+const uploadPanel = document.getElementById('uploadPanel');
+const formPanel   = document.getElementById('formPanel');
+const API = window.location.origin; // assumes UI served from same host:port
+
+const pdfZone     = document.getElementById('pdfZone');
+const pdfInput    = document.getElementById('pdfInput');
+const docxZone    = document.getElementById('docxZone');
+const docxInput   = document.getElementById('docxInput');
+const courseIdEl  = document.getElementById('courseIdField');
+const saveBtn     = document.getElementById('saveBtn');
+const statusEl    = document.getElementById('status');
+const buildBtn    = document.getElementById('buildBtn');
+const artifactsDiv=document.getElementById('artifacts');
+let selectedFile  = null;
+let authorDocx    = null;
+
+modeRadios.forEach(r => r.addEventListener('change', syncMode));
+function syncMode() {
+  const mode = document.querySelector('[name="mode"]:checked').value;
+  uploadPanel.classList.toggle('hidden', mode !== 'upload');
+  formPanel.classList.toggle('hidden',   mode !== 'generate');
+  saveBtn.disabled = (mode === 'upload' && !selectedFile);
+}
+syncMode();
+
+function setDragEvents(zone) {
+  ['dragenter','dragover'].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.add('drag'); }));
+  ['dragleave','drop'].forEach(ev => zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag'); }));
+}
+
+setDragEvents(pdfZone);
+setDragEvents(docxZone);
+
+pdfZone.addEventListener('click', () => pdfInput.click());
+pdfZone.addEventListener('drop',  e => { const file = e.dataTransfer.files[0]; handlePdf(file); });
+pdfInput.addEventListener('change', e => handlePdf(e.target.files[0]));
+
+docxZone.addEventListener('click', () => docxInput.click());
+docxZone.addEventListener('drop',  e => { const file = e.dataTransfer.files[0]; handleDocx(file); });
+docxInput.addEventListener('change', e => handleDocx(e.target.files[0]));
+
+function handlePdf(file) {
+  if (!file) return;
+  if (file.type !== 'application/pdf') return alert('Please choose a PDF');
+  selectedFile = file;
+  pdfZone.textContent = file.name;
+  if (document.querySelector('[name="mode"]:checked').value === 'upload') saveBtn.disabled = false;
+}
+
+function handleDocx(file) {
+  if (!file) return;
+  if (!file.name.endsWith('.docx')) return alert('Please choose a .docx file');
+  authorDocx = file;
+  docxZone.textContent = file.name;
+}
+
+// --- save ---
+saveBtn.addEventListener('click', async () => {
+  const mode = document.querySelector('[name="mode"]:checked').value;
+  saveBtn.disabled = true; statusEl.textContent = 'Saving…';
+  try {
+    const courseId = courseIdEl.value.trim();
+    if (!courseId) throw new Error('Course ID required');
+
+    if (authorDocx) {
+      // upload author docx first (requires backend endpoint)
+      const fdDocx = new FormData();
+      fdDocx.append('file', authorDocx);
+      await fetch(`${API}/courses/${courseId}/source`, { method:'POST', body: fdDocx });
+    }
+
+    if (mode === 'upload') {
+      const fd = new FormData();
+      fd.append('file', selectedFile);
+      const res = await fetch(`${API}/courses/${courseId}/front-matter/file`, { method:'POST', body: fd });
+      if (!res.ok) throw new Error(await res.text());
+    } else {
+      const payload = {
+        title: document.getElementById('titleField').value,
+        credit_type: document.getElementById('creditTypeField').value,
+        credits: parseFloat(document.getElementById('creditsField').value||'0'),
+        release_date: document.getElementById('releaseField').value,
+        expiration_date: document.getElementById('expireField').value,
+        objectives: document.getElementById('objectivesField').value.split(/\n+/).filter(Boolean),
+        provider_name: document.getElementById('providerField').value,
+        credit_table: document.getElementById('creditRowsField').value.split(/\n+/).filter(Boolean).map(r=>{
+          const [type, amt] = r.split('|');
+          return { type: (type||'').trim(), amount: parseFloat((amt||'').trim()||'0') };
+        }),
+        authors_html: tinymce.get('authorsEditor').getContent(),
+        disclaimer_html: tinymce.get('disclaimerEditor').getContent()
+      };
+      await fetch(`${API}/courses/${courseId}/front-matter/meta`, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+      });
+    }
+    statusEl.textContent = 'Saved!';
+  } catch(err) {
+    console.error(err);
+    statusEl.textContent = 'Error: '+err.message;
+  } finally { saveBtn.disabled = false; }
+});
+
+// --- build ---
+buildBtn.addEventListener('click', async()=>{
+  const courseId = courseIdEl.value.trim();
+  buildBtn.disabled = true; statusEl.textContent = 'Building…'; artifactsDiv.innerHTML='';
+  try{
+    const res = await fetch(`${API}/courses/${courseId}/build`, {method:'POST'});
+    if(!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    statusEl.textContent = 'Build complete!';
+    if(data.artifacts && data.artifacts.length){
+      artifactsDiv.innerHTML = '<h4>Artifacts:</h4>' + data.artifacts.map(path => `<a href="${API}/files/${path.replace('courses/','')}" target="_blank">${path.split('/').pop()}</a>`).join('<br>');
+    }
+  }catch(err){ statusEl.textContent='Error: '+err.message; }
+  finally{ buildBtn.disabled=false; }
+});
+
+// ---- TinyMCE init ----
+tinymce.init({ selector:'#authorsEditor,#disclaimerEditor', height:200, menubar:false,
+  plugins:'lists link table paste', toolbar:'undo redo | styles | bold italic underline | alignleft aligncenter alignright | bullist numlist | link table',
+});
+
+// snippet insertion
+document.getElementById('snippetSelect').addEventListener('change', e=>{
+  const html = e.target.value;
+  if(html){ tinymce.get('disclaimerEditor').insertContent(html); e.target.value=''; }
+});
+</script>
+</body>
+</html> 
