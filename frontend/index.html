@@ -215,7 +215,7 @@ buildBtn.addEventListener('click', async()=>{
     const data = await res.json();
     statusEl.textContent = 'Build complete!';
     if(data.artifacts && data.artifacts.length){
-      artifactsDiv.innerHTML = '<h4>Artifacts:</h4>' + data.artifacts.map(path => `<a href="${API}/files/${path.replace('courses/','')}" target="_blank">${path.split('/').pop()}</a>`).join('<br>');
+      artifactsDiv.innerHTML = '<h4>Artifacts:</h4>' + data.artifacts.map(path => `<a href="${API}/files/${path}" target="_blank">${path.split('/').pop()}</a>`).join('<br>');
     }
   }catch(err){ statusEl.textContent='Error: '+err.message; }
   finally{ buildBtn.disabled=false; }

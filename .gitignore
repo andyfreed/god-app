@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Course files
+courses/*/generated/
+courses/*/source/
+courses/*/metadata.yaml
+courses/*/overlay.json
+
+# IDE
+.vscode/
+.idea/
+
+# System files
+.DS_Store
+Thumbs.db 
